@@ -391,8 +391,22 @@ async function closeOffer(program: Program) {
         toClose = userCreatedOffers[Number(input)-1]
     }
 
+    let receiveAccount: web3.PublicKey
+    const response = await connection.getTokenAccountsByOwner(partyOne, { mint: toClose.offerToken })
+    if (response.value.length === 0) {
+        try {
+            const ata = await token.getOrCreateAssociatedTokenAccount(connection, getUserKeypair(), toClose.offerToken, partyOne)
+            receiveAccount = ata.address
+        } catch (error) {
+            console.error("Error creating token account to withdraw tokens...")
+            console.log("Check that you have enough sol balance")
+            return
+        }
+    } else {
+        receiveAccount = response.value[0].pubkey
+    }
     // send close offer transaction
-    await sendCloseOfferTxn(toClose, program)
+    await sendCloseOfferTxn(toClose, receiveAccount, program)
 }
 
 async function sendCreateOfferTxn(sendDetails: { sendMint: web3.PublicKey,
@@ -447,7 +461,7 @@ async function sendAcceptOfferTxn(offer: OfferDetails, sendAccount: web3.PublicK
     console.log(`https://explorer.solana.com/tx/${txn}?cluster=devnet`)
 }
 
-async function sendCloseOfferTxn(offer: OfferDetails, program: Program) {
+async function sendCloseOfferTxn(offer: OfferDetails, receiveAccount: web3.PublicKey, program: Program) {
     const [authority] = web3.PublicKey.findProgramAddressSync([Buffer.from("authority")], program.programId)
     const tempAccount = token.getAssociatedTokenAddressSync(offer.offerToken, authority, true)
     const [offerDetails] = web3.PublicKey.findProgramAddressSync([Buffer.from("escrow"), offer.partyOne.toBuffer(), offer.partyTwo.toBuffer()], program.programId)
@@ -459,7 +473,7 @@ async function sendCloseOfferTxn(offer: OfferDetails, program: Program) {
                             authority,
                             sendMint: offer.offerToken,
                             tempAccount,
-                            receiveAccount: offer.receiveAccount
+                            receiveAccount
                         })
                         .rpc()
 
